@@ -125,6 +125,7 @@ export default function UltimateJetPesaCockpit() {
   const [toasts, setToasts] = useState([]);
   const [inputPhone, setInputPhone] = useState('');
   const [inputAmount, setInputAmount] = useState('100');
+  const [depositProvider, setDepositProvider] = useState('auto');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [loadingDeposit, setLoadingDeposit] = useState(false);
   const [loadingWithdraw, setLoadingWithdraw] = useState(false);
@@ -706,7 +707,7 @@ export default function UltimateJetPesaCockpit() {
     try {
       const { res, json: data } = await authedFetch('/api/deposit', {
         method: 'POST',
-        body: JSON.stringify({ amount: amt, phone: cleanPhone }),
+        body: JSON.stringify({ amount: amt, phone: cleanPhone, provider: depositProvider }),
       });
       if (!res.ok || !data.success) throw new Error(data.message || 'Payment initiation failed.');
       if (rememberPhone) localStorage.setItem('jetpesa_saved_phone', cleanPhone);
@@ -994,6 +995,13 @@ export default function UltimateJetPesaCockpit() {
             <h3 className="jp-modal-title" style={{ color: '#22c55e' }}>Safaricom M-Pesa Wire</h3>
             <div className="jp-modal-field"><label className="jp-modal-label">DEPOSIT QUANTITY (MIN 49 KES)</label><input type="number" value={inputAmount} onChange={(e) => setInputAmount(e.target.value)} className="jp-modal-input" /></div>
             <div className="jp-modal-field"><label className="jp-modal-label">M-PESA REGISTERED TELEPHONE</label><input type="text" value={inputPhone} onChange={(e) => setInputPhone(e.target.value)} placeholder="07XXXXXXXX" className="jp-modal-input" /></div>
+            <div className="jp-modal-field"><label className="jp-modal-label">PAY WITH</label>
+              <select value={depositProvider} onChange={(e) => setDepositProvider(e.target.value)} className="jp-modal-input">
+                <option value="auto">Automatic</option>
+                <option value="paystack">Paystack (M-Pesa)</option>
+                <option value="payhero">PayHero (M-Pesa)</option>
+              </select>
+            </div>
             <button onClick={handlePaymentInitiation} disabled={loadingDeposit} className="jp-modal-btn jp-btn-green">{loadingDeposit ? 'SYNCHRONIZING...' : 'AUTHORIZE DEPOSIT'}</button>
           </div>
         </div>

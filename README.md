@@ -8,8 +8,8 @@ Aviator-style crash game built with Next.js, **Supabase** (auth + database) and 
 - **Wallet:** balances live in `profiles.wallet_balance`. Browsers can only *read* their own row. Every balance change goes through SQL functions that only the server (service role) can call, and each one writes to `wallet_ledger`.
 - **Game:** rounds are created and settled on the server. The crash point stays in the database until the round has crashed; bets and cash-outs are validated against the server clock and paid by the server.
 - **Provably fair:** each round publishes `sha256(roundSeed)` up front and reveals the seed after the crash (`/api/game/provably?nonce=N`). Crash point = f(HMAC_SHA256(roundSeed, `clientSeed:nonce`)).
-- **Deposits:** Paystack Charge API (M-Pesa STK push), confirmed by the signed `charge.success` webhook, with a verify fallback. Credited exactly once.
-- **Withdrawals:** wallet is debited first, then a Paystack Transfer to the account's M-Pesa number. Failed or reversed transfers are refunded automatically via webhook.
+- **Deposits:** M-Pesa STK push via Paystack or PayHero (player can choose; Automatic tries Paystack, then PayHero). Paystack is confirmed by its signed webhook; PayHero callbacks are unsigned, so they only trigger a server-side status check with PayHero before crediting. A polling fallback covers late callbacks. Credited exactly once.
+- **Withdrawals (Paystack only):** wallet is debited first, then a Paystack Transfer to the account's M-Pesa number. Failed or reversed transfers are refunded automatically via webhook.
 
 ## Setup
 

@@ -30,13 +30,15 @@ create table if not exists public.deposits (
   amount integer not null check (amount > 0),
   phone text not null,
   status text not null default 'pending',   -- pending | completed | failed
-  provider text not null default 'paystack',
+  provider text not null default 'paystack',   -- paystack | payhero
+  provider_reference text,
   credited boolean not null default false,
   failure_reason text,
   provider_response jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.deposits add column if not exists provider_reference text;  -- for databases created before PayHero was added
 create index if not exists deposits_user_idx on public.deposits(user_id, created_at desc);
 
 create table if not exists public.withdrawals (
