@@ -164,8 +164,6 @@ export default function JetPesaLandingPage() {
   const [demoStatus, setDemoStatus] = useState('loading');
   const [demoProgress, setDemoProgress] = useState(100);
   const [demoBets, setDemoBets] = useState([]);
-  const [totalPoolUsers, setTotalPoolUsers] = useState(3452);
-  const [weeklyPot, setWeeklyPot] = useState(50000000);
 
   const canvasRef = useRef(null);
   const animationId = useRef(null);
@@ -187,9 +185,6 @@ export default function JetPesaLandingPage() {
         1.24, 1.41, 1.67, 1.95, 2.2, 2.85, 3.6, 4.4, 5.8,
         8.2, 12.5, 18.8, 25.4, 39.6, 58.2, 78.4, 135.5, 180.0,
       ];
-
-      setTotalPoolUsers(Math.floor(Math.random() * 4200 + 6800));
-      setWeeklyPot(50000000 + Math.floor(Math.random() * 850000));
 
       setDemoBets(
         names.map((name, i) => ({
@@ -441,7 +436,7 @@ export default function JetPesaLandingPage() {
 
         <div className="jp-nav-center">
           <a href="#demo" className="jp-nav-link">Live Demo</a>
-          <a href="#jackpot" className="jp-nav-link">Jackpot</a>
+          <a href="#jackpot" className="jp-nav-link">Fair Play</a>
           <a href="#features" className="jp-nav-link">Features</a>
           <a href="#how" className="jp-nav-link">How it works</a>
         </div>
@@ -504,8 +499,8 @@ export default function JetPesaLandingPage() {
                 <Icon name="trophy" size={18} />
               </div>
               <div>
-                <strong className="jp-stat-value">KES 50M</strong>
-                <span className="jp-stat-label">Weekly top wager jackpot</span>
+                <strong className="jp-stat-value">Verifiable</strong>
+                <span className="jp-stat-label">Provably fair rounds</span>
               </div>
             </div>
             <div className="jp-stat-card">
@@ -534,11 +529,11 @@ export default function JetPesaLandingPage() {
               <div>
                 <div className="jp-live-dot-row">
                   <span className="jp-live-dot" />
-                  <span className="jp-live-text">LIVE ROUND</span>
+                  <span className="jp-live-text">SIMULATED DEMO</span>
                 </div>
                 <div className="jp-online-text">
                   <Icon name="users" size={12} />
-                  {totalPoolUsers.toLocaleString()} pilots online
+                  Demo only. Not real players or real money
                 </div>
               </div>
               <div className="jp-wallet-pill">
@@ -630,16 +625,16 @@ export default function JetPesaLandingPage() {
       <section id="jackpot" className="jp-jackpot-section">
         <div className="jp-jackpot-card">
           <div className="jp-jackpot-icon">
-            <Icon name="trophy" size={34} />
+            <Icon name="shield" size={34} />
           </div>
           <div>
-            <span className="jp-section-kicker">WEEKLY HIGH ROLLER JACKPOT</span>
+            <span className="jp-section-kicker">PROVABLY FAIR</span>
             <h2 className="jp-section-title">
-              {formatKES(weeklyPot)} jackpot every week.
+              Every round is verifiable.
             </h2>
             <p className="jp-section-text">
-              The highest verified wager volume of the week gets a premium jackpot
-              allocation. Keep flying, keep climbing, and finish at the top of the runway.
+              Each round's seed is committed to with a published hash before takeoff and
+              revealed after the crash, so you can check every result yourself.
             </p>
           </div>
         </div>
@@ -656,8 +651,8 @@ export default function JetPesaLandingPage() {
           <div className="jp-mini-icon jp-mini-icon-indigo">
             <Icon name="diamond" size={22} />
           </div>
-          <strong>VIP Missions</strong>
-          <p>Daily missions, streak rewards, and wager milestones.</p>
+          <strong>Two Bet Decks</strong>
+          <p>Run two wagers per round with optional auto cash-out.</p>
         </div>
       </section>
 
@@ -675,8 +670,8 @@ export default function JetPesaLandingPage() {
           {[
             ['cash', 'Instant Cashout', 'Cash out while the plane is still climbing.'],
             ['chart', 'Live Multiplier', 'Animated multiplier with real-time demo action.'],
-            ['users', 'Player Feed', 'Many simulated users winning and a few missing the flight.'],
-            ['trophy', '50M Jackpot', 'Weekly top wager prize for serious players.'],
+            ['users', 'Demo Feed', 'The landing-page demo uses simulated players for illustration only.'],
+            ['shield', 'Provably Fair', 'Verify every crash point against its published round hash.'],
             ['shield', 'Secure Access', 'Professional auth-focused call-to-actions.'],
             ['mobile', 'Small Screen Ready', 'Responsive cards, ledger, nav, and hero layout.'],
             ['wallet', 'Wallet UX', 'KES wallet messaging with M-Pesa-ready positioning.'],
@@ -705,7 +700,7 @@ export default function JetPesaLandingPage() {
             ['1', 'target', 'Place your stake', 'Choose your KES amount before the aircraft launches.'],
             ['2', 'chart', 'Watch the multiplier', 'The multiplier climbs higher as the jet flies.'],
             ['3', 'cash', 'Cash out early', 'Secure winnings before the plane disappears.'],
-            ['4', 'trophy', 'Compete weekly', 'Push your wager volume for the 50M jackpot race.'],
+            ['4', 'shield', 'Verify the round', 'Check the crash point against the revealed round seed.'],
           ].map(([num, icon, title, text]) => (
             <div key={num} className="jp-step-card">
               <div className="jp-step-head">
@@ -727,8 +722,8 @@ export default function JetPesaLandingPage() {
           <span className="jp-section-kicker">READY FOR TAKEOFF?</span>
           <h2 className="jp-final-title">Join JetPesa and enter the next round.</h2>
           <p className="jp-final-text">
-            Professional Aviator-style betting interface with live demo action,
-            mobile responsiveness, jackpot positioning, and conversion-focused UI.
+            Aviator-style crash game with M-Pesa deposits and verifiable rounds.
+            Betting involves risk. Only play with money you can afford to lose. 18+.
           </p>
         </div>
 

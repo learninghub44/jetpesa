@@ -2,13 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from '../../firebaseConfig';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { supabase } from '../../lib/supabaseBrowser';
 import confetti from 'canvas-confetti';
 
 const MIN_WAGER = 10;
-const HISTORY_STORAGE_KEY = 'jetpesa_real_previous_rounds';
+const COUNTDOWN_MS = 5000;
 
 /* -------------------------------------------------------------------------- */
 /*  Icon System                                                               */
@@ -152,49 +150,30 @@ export default function UltimateJetPesaCockpit() {
   const [multiplier, setMultiplier] = useState(1.0);
   const [gameStatus, setGameStatus] = useState('idle');
   const [countdownProgress, setCountdownProgress] = useState(100);
-  const [historyTape, setHistoryTape] = useState(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const saved = JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) || '[]');
-      return Array.isArray(saved) ? saved.map(Number).filter(Boolean).slice(0, 14) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [historyTape, setHistoryTape] = useState([]);
 
-  const [activePlayersCount, setActivePlayersCount] = useState(3412);
+  const [activePlayersCount, setActivePlayersCount] = useState(0);
   const [liveBetsFeed, setLiveBetsFeed] = useState([]);
   const [chatInput, setChatInput] = useState('');
-  const [chatLogs, setChatLogs] = useState([
-    { user: 'Shark071***45', seed: 'shark', msg: 'Admin, background rain drop claim active?', time: '08:02' },
-    { user: 'Lion072***89', seed: 'lion', msg: 'Leo tunakula rocket safi sana hapa JetPesa!', time: '08:04' },
-    { user: 'Falcon079***12', seed: 'falcon', msg: 'Ningwenda gukiria 10x rugii rufifi rwa Deck B gaka!', time: '08:04' },
-    { user: 'Cheetah011***90', seed: 'cheetah', msg: 'Asego mar plane ni e ma duong! Multiplier obiro thuth!', time: '08:05' },
-  ]);
+  const [chatLogs, setChatLogs] = useState([]);
 
   const [provablyData, setProvablyData] = useState(null);
   const [provablyLoading, setProvablyLoading] = useState(false);
+  const [roundInfo, setRoundInfo] = useState({ nonce: 0, commitment: '' });
 
   const canvasRef = useRef(null);
   const animationId = useRef(null);
   const chatEndRef = useRef(null);
   const audioCtxRef = useRef(null);
   const planeImageRef = useRef(null);
-  const lastCycleRef = useRef(null);
-  const recordedCrashCycleRef = useRef(null);
-  const betNonceRef = useRef(1);
-
-  const currentRoundRef = useRef({
-    nonce: 1,
-    crashPoint: 2.0,
-    serverSeedHash: '',
-    roundHash: '',
-    clientSeed: '',
-    algorithm: '',
-    verifyInput: '',
-    serverSeed: '',
-    houseEdge: 0.01,
-  });
+  const roundRef = useRef({ nonce: 0, phase: 'betting', takeoffAt: 0, crashPoint: null, commitment: '' });
+  const clockOffsetRef = useRef(0);
+  const deckARef = useRef(null);
+  const deckBRef = useRef(null);
+  const cashingRef = useRef({ A: false, B: false });
+  const queuedForRoundRef = useRef(0);
+  const prevOpenRef = useRef({ A: false, B: false });
+  const applyRef = useRef(null);
 
   useEffect(() => {
     const svgPlane = `
@@ -261,104 +240,36 @@ export default function UltimateJetPesaCockpit() {
     }
   }, [audioMuted]);
 
-  const makeRandomBet = useCallback(() => {
-    const px = ['070***', '071***', '072***', '079***', '011***', '074***', '010***'];
-    const id = Math.random().toString(36).substring(2, 8);
-    return {
-      id: Date.now() + Math.random(),
-      seed: id,
-      username: px[Math.floor(Math.random() * px.length)] + Math.floor(Math.random() * 89 + 10),
-      bet: Math.floor(Math.random() * 4800 + 100),
-      mult: parseFloat((Math.random() * 2.8 + 1.05).toFixed(2)),
-      won: Math.random() > 0.58,
-      status: 'queued',
-    };
-  }, []);
 
-  const startFreshLiveBetsFeed = useCallback(() => {
-    setLiveBetsFeed([]);
-    setActivePlayersCount(Math.floor(Math.random() * 1500 + 3000));
-    let count = 0;
-    const interval = setInterval(() => {
-      count += 1;
-      setLiveBetsFeed((prev) => [makeRandomBet(), ...prev].slice(0, 28));
-      if (count >= 25) clearInterval(interval);
-    }, 120);
-  }, [makeRandomBet]);
 
-  const updateLiveBetStatuses = useCallback((currentMultiplier) => {
-    setLiveBetsFeed((prev) =>
-      prev.map((b) => {
-        if (b.status !== 'queued') return b;
-        if (currentMultiplier >= b.mult && b.won) {
-          return { ...b, status: 'cashed', payout: Math.floor(b.bet * b.mult) };
-        }
-        return { ...b, status: 'flying' };
-      })
-    );
-  }, []);
 
-  const markLiveBetsCrashed = useCallback(() => {
-    setLiveBetsFeed((prev) =>
-      prev.map((b) => (b.status === 'cashed' ? b : { ...b, status: 'lost' }))
-    );
-  }, []);
 
-  const sha256Hex = async (input) => {
-    const bytes = new TextEncoder().encode(input);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
-    return [...new Uint8Array(hashBuffer)].map((b) => b.toString(16).padStart(2, '0')).join('');
-  };
 
-  const hmacSha256Hex = async (key, message) => {
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(key),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    );
-    const signature = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(message));
-    return [...new Uint8Array(signature)].map((b) => b.toString(16).padStart(2, '0')).join('');
-  };
 
-  const deriveCrashPointFromHash = (hash, houseEdge = 0.01) => {
-    const h = parseInt(hash.slice(0, 13), 16);
-    const e = Math.pow(2, 52);
-    if (h % 33 === 0) return 1.0;
-    const raw = (100 * e - h) / (e - h);
-    const edged = raw * (1 - houseEdge);
-    return Math.max(1, Math.floor(edged) / 100);
-  };
 
-  const generateLocalProvablyRound = async (nonce) => {
-    const randomBytes = new Uint8Array(32);
-    crypto.getRandomValues(randomBytes);
-    const serverSeed = [...randomBytes].map((b) => b.toString(16).padStart(2, '0')).join('');
-    const clientSeed = `${user?.uid || 'guest'}:${nonce}:jetpesa`;
-    const verifyInput = `${clientSeed}:${nonce}`;
-    const roundHash = await hmacSha256Hex(serverSeed, verifyInput);
-    const serverSeedHash = await sha256Hex(serverSeed);
-    const crashPoint = deriveCrashPointFromHash(roundHash, 0.01);
-    return {
-      nonce, crashPoint, serverSeedHash, serverSeed, roundHash,
-      clientSeed, verifyInput, houseEdge: 0.01,
-      algorithm: 'HMAC_SHA256(serverSeed, clientSeed:nonce), SHA256 serverSeed commitment',
-    };
-  };
 
-  const persistCrashToHistory = useCallback((crashPoint, cycleIndex) => {
-    if (recordedCrashCycleRef.current === cycleIndex) return;
-    recordedCrashCycleRef.current = cycleIndex;
-    const cleanCrash = Number(Number(crashPoint).toFixed(2));
-    setHistoryTape((prev) => {
-      const next = [cleanCrash, ...prev].slice(0, 14);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
-      }
-      return next;
+
+
+
+  /* ---------------------------------------------------------------------- */
+  /*  Server-authoritative game + wallet (Supabase). The browser never       */
+  /*  decides balances, crash points or payouts.                             */
+  /* ---------------------------------------------------------------------- */
+  deckARef.current = deckA;
+  deckBRef.current = deckB;
+
+  const authedFetch = useCallback(async (path, options = {}) => {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token || '';
+    const res = await fetch(path, {
+      ...options,
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}), Authorization: `Bearer ${token}` },
     });
-  }, []);
+    const json = await res.json().catch(() => ({}));
+    if (res.status === 401) router.push('/auth?tab=login');
+    return { res, json };
+  }, [router]);
 
   const fetchProvablyRound = useCallback(async (nonce, openModal = false) => {
     try {
@@ -366,31 +277,112 @@ export default function UltimateJetPesaCockpit() {
       const res = await fetch(`/api/game/provably?nonce=${nonce}`, { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || 'Could not load provably fair round.');
-      currentRoundRef.current = {
-        nonce: data.nonce, crashPoint: Number(data.crashPoint || 1),
-        serverSeedHash: data.serverSeedHash, roundHash: data.roundHash,
-        clientSeed: data.clientSeed, algorithm: data.algorithm,
-        verifyInput: data.verifyInput, serverSeed: data.serverSeed || '',
-        houseEdge: Number(data.houseEdge ?? 0.01),
-      };
-      setProvablyData(currentRoundRef.current);
+      setProvablyData(data);
       if (openModal) setIsProvablyModalOpen(true);
-      return currentRoundRef.current;
     } catch (e) {
-      const fallbackRound = await generateLocalProvablyRound(nonce);
-      currentRoundRef.current = fallbackRound;
-      setProvablyData(fallbackRound);
-      if (openModal) setIsProvablyModalOpen(true);
-      triggerToast('Server fair API unavailable. Using local cryptographic fallback.', 'info');
-      return fallbackRound;
+      triggerToast(e.message, 'error');
     } finally {
       if (openModal) setProvablyLoading(false);
     }
-  }, [triggerToast, generateLocalProvablyRound]);
+  }, [triggerToast]);
 
   const openProvablyModal = async () => {
-    await fetchProvablyRound(currentRoundRef.current.nonce, true);
+    const r = roundRef.current;
+    // The running round's seed stays secret until it crashes; show the last revealed one.
+    const nonce = r.crashPoint != null ? r.nonce : Math.max(1, r.nonce - 1);
+    await fetchProvablyRound(nonce, true);
   };
+
+  const placeServerBet = async (deckName, fromQueue = false) => {
+    const d = deckName === 'A' ? deckARef.current : deckBRef.current;
+    const setter = deckName === 'A' ? setDeckA : setDeckB;
+    const stake = Math.max(MIN_WAGER, Number(d.wager) || MIN_WAGER);
+    const autoCashout = d.isAutoCash ? parseFloat(d.cashVal) : null;
+    const { res, json } = await authedFetch('/api/game/bet', {
+      method: 'POST',
+      body: JSON.stringify({ deck: deckName, stake, autoCashout }),
+    });
+    if (!res.ok || !json.success) {
+      setter((p) => ({ ...p, hasBetNext: false }));
+      triggerToast(json.message || 'Could not place bet.', 'error');
+      return false;
+    }
+    setBalance(json.balance);
+    setter((p) => ({ ...p, hasBetCurrent: true, hasBetNext: fromQueue ? p.isAuto : p.hasBetNext }));
+    return true;
+  };
+
+  const serverCashout = async (deckName, auto = false) => {
+    if (cashingRef.current[deckName]) return;
+    cashingRef.current[deckName] = true;
+    const setter = deckName === 'A' ? setDeckA : setDeckB;
+    let settled = false;
+    try {
+      const { res, json } = await authedFetch('/api/game/cashout', {
+        method: 'POST',
+        body: JSON.stringify({ deck: deckName, auto }),
+      });
+      if (!res.ok || !json.success) { triggerToast(json.message || 'Cash-out failed.', 'error'); return; }
+      if (json.result === 'won') {
+        settled = true;
+        setBalance(json.balance);
+        setter((p) => ({ ...p, hasBetCurrent: false }));
+        playSynthesizedTone(587.33, 'sine', 0.12, 0.05);
+        setTimeout(() => playSynthesizedTone(880.0, 'sine', 0.25, 0.05), 110);
+        confetti({ particleCount: 60, spread: 50, origin: { y: 0.4 } });
+        triggerToast(`${auto ? 'Auto ' : ''}Cashout @ ${json.multiplier.toFixed(2)}x! +KES ${json.payout.toFixed(2)}`, 'success');
+      } else if (json.result === 'crashed') {
+        settled = true;
+        setter((p) => ({ ...p, hasBetCurrent: false }));
+        triggerToast('Too late. The plane had already flown away.', 'error');
+      } else if (json.result === 'no_bet') {
+        settled = true;
+        setter((p) => ({ ...p, hasBetCurrent: false }));
+      }
+      // 'too_early' / 'not_flying': leave unsettled so the loop can retry.
+    } finally {
+      if (!settled) cashingRef.current[deckName] = false;
+    }
+  };
+
+  const applyServerState = (json, t0) => {
+    const r = json.round;
+    const rtt = Date.now() - t0;
+    clockOffsetRef.current = json.serverTime - (t0 + rtt / 2);
+
+    const prev = roundRef.current;
+    roundRef.current = { nonce: r.nonce, phase: r.phase, takeoffAt: r.takeoffAt, crashPoint: r.crashPoint, commitment: r.commitment };
+    if (prev.nonce !== r.nonce) {
+      setRoundInfo({ nonce: r.nonce, commitment: r.commitment });
+      cashingRef.current = { A: false, B: false };
+    }
+
+    setBalance(json.balance);
+    setLiveBetsFeed(json.liveBets);
+    setActivePlayersCount(json.playerCount);
+    setHistoryTape(json.history);
+    setMyBetsHistory(json.myHistory);
+
+    const isOpen = (d) => json.myBets.some((b) => b.deck === d && b.status === 'open');
+    const open = { A: isOpen('A'), B: isOpen('B') };
+    ['A', 'B'].forEach((d) => {
+      if (prevOpenRef.current[d] && !open[d] && r.crashPoint != null) {
+        const lost = json.myBets.find((b) => b.deck === d && b.status === 'lost');
+        if (lost) triggerToast(`Deck ${d}: flew away @ ${Number(r.crashPoint).toFixed(2)}x`, 'error');
+      }
+    });
+    prevOpenRef.current = open;
+    setDeckA((p) => (p.hasBetCurrent === open.A ? p : { ...p, hasBetCurrent: open.A }));
+    setDeckB((p) => (p.hasBetCurrent === open.B ? p : { ...p, hasBetCurrent: open.B }));
+
+    // Queued ("next round") bets are placed as soon as a new betting window opens.
+    if (r.phase === 'betting' && queuedForRoundRef.current !== r.nonce) {
+      queuedForRoundRef.current = r.nonce;
+      if (deckARef.current?.hasBetNext) placeServerBet('A', true);
+      if (deckBRef.current?.hasBetNext) placeServerBet('B', true);
+    }
+  };
+  applyRef.current = applyServerState;
 
   useEffect(() => {
     const savedPhone = localStorage.getItem('jetpesa_saved_phone');
@@ -399,128 +391,101 @@ export default function UltimateJetPesaCockpit() {
       setPhoneProfile(savedPhone);
       setEditPhone(savedPhone);
     }
-    const unsubscribe = onAuthStateChanged(auth, async (curr) => {
-      if (!curr) { router.push('/'); return; }
-      setUser(curr);
-      const userDoc = await getDoc(doc(db, 'users', curr.uid));
-      if (userDoc.exists()) {
-        const d = userDoc.data();
-        setBalance(d.walletBalance || 0.0);
-        setProfileName(d.displayName || '');
-        setEditName(d.displayName || '');
-        if (!savedPhone && d.mpesaPhone) {
-          setPhoneProfile(d.mpesaPhone);
-          setInputPhone(d.mpesaPhone);
-          setEditPhone(d.mpesaPhone);
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      const session = data?.session;
+      if (!session) { router.push('/'); return; }
+      setUser(session.user);
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('wallet_balance, display_name, mpesa_phone')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      if (cancelled || !prof) return;
+      setBalance(Number(prof.wallet_balance || 0));
+      setProfileName(prof.display_name || '');
+      setEditName(prof.display_name || '');
+      if (!savedPhone && prof.mpesa_phone) {
+        setPhoneProfile(prof.mpesa_phone);
+        setInputPhone(prof.mpesa_phone);
+        setEditPhone(prof.mpesa_phone);
+      }
+    })();
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) router.push('/');
+    });
+    return () => { cancelled = true; sub.subscription.unsubscribe(); };
+  }, [router]);
+
+  // Poll the server for round state (balance, live bets, history, phase).
+  useEffect(() => {
+    if (!user) return;
+    let stopped = false;
+    let timer;
+    const tick = async () => {
+      try {
+        const t0 = Date.now();
+        const { res, json } = await authedFetch('/api/game/state');
+        if (!stopped && res.ok && json.success) applyRef.current(json, t0);
+      } catch (e) { /* retry on next tick */ }
+      if (!stopped) timer = setTimeout(tick, roundRef.current.phase === 'flying' ? 250 : 500);
+    };
+    tick();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [user, authedFetch]);
+
+
+  useEffect(() => {
+    function runClockLoop() {
+      const r = roundRef.current;
+      const now = Date.now() + clockOffsetRef.current;
+      let offsetMs = 0;
+
+      if (r.nonce) {
+        const sinceTakeoff = now - r.takeoffAt;
+        if (r.crashPoint != null) {
+          // Crash point is only known once the server confirms the crash.
+          if (gameStatus !== 'crashed') setGameStatus('crashed');
+          setMultiplier(Number(r.crashPoint));
+          offsetMs = COUNTDOWN_MS + Math.max(0, sinceTakeoff);
+        } else if (sinceTakeoff < 0) {
+          if (gameStatus !== 'idle') {
+            setGameStatus('idle');
+            setMultiplier(1.0);
+            playSynthesizedTone(440, 'triangle', 0.05, 0.03);
+          }
+          setCountdownProgress(Math.max(0, Math.min(100, (-sinceTakeoff / COUNTDOWN_MS) * 100)));
+          offsetMs = COUNTDOWN_MS + sinceTakeoff;
+          if (offsetMs % 1000 < 20) playSynthesizedTone(320, 'sine', 0.03, 0.02);
+        } else {
+          if (gameStatus !== 'running') setGameStatus('running');
+          const computed = Math.max(1, Math.floor(Math.exp(0.078 * (sinceTakeoff / 1000)) * 100) / 100);
+          setMultiplier(computed);
+          offsetMs = COUNTDOWN_MS + sinceTakeoff;
+          if (offsetMs % 300 < 20) playSynthesizedTone(200 + computed * 15, 'sine', 0.015, 0.012);
+          [['A', deckA], ['B', deckB]].forEach(([name, d]) => {
+            if (d.hasBetCurrent && d.isAutoCash && computed >= parseFloat(d.cashVal) && !cashingRef.current[name]) {
+              serverCashout(name, true);
+            }
+          });
         }
       }
-    });
-    fetchProvablyRound(1);
-    startFreshLiveBetsFeed();
-    return () => unsubscribe();
-  }, [router, fetchProvablyRound, startFreshLiveBetsFeed]);
+
+      renderRadarCanvas(offsetMs, COUNTDOWN_MS);
+      animationId.current = requestAnimationFrame(runClockLoop);
+    }
+
+    animationId.current = requestAnimationFrame(runClockLoop);
+    return () => cancelAnimationFrame(animationId.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deckA, deckB, gameStatus, balance, audioMuted, isRainActive]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatLogs]);
 
-  useEffect(() => {
-    const chatPool = [
-      { user: 'Fox072***14', seed: 'fox', msg: 'Weh, plane irefuka maze, cash out haraka!' },
-      { user: 'Rhino079***88', seed: 'rhino', msg: 'Mugithii uu no rugendo ruranya gugikura na iguru.' },
-      { user: 'Jet011***23', seed: 'jet', msg: 'Anya tero mwandu nyaka polo! Retain control omera.' },
-      { user: 'Pilot070***66', seed: 'pilot', msg: 'Free bets admin please.....' },
-      { user: 'Mamba072***99', seed: 'mamba', msg: '50k innit! hii ni ingine mwechecheeee' },
-      { user: 'Sky010***45', seed: 'sky', msg: 'Wakuu mmenikula ata school fees, watu wanichangie please' },
-      { user: 'Turbo075***04', seed: 'turbo', msg: 'Nimeweka 500 stake hapa, twende sasa kabla iland.' },
-    ];
-    const intervalChat = setInterval(() => {
-      const picked = chatPool[Math.floor(Math.random() * chatPool.length)];
-      setChatLogs((p) => [...p, { ...picked, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
-    }, 8000);
-    return () => clearInterval(intervalChat);
-  }, []);
 
-  useEffect(() => {
-    function runDistributedClockLoop() {
-      const epochTimeMs = Date.now();
-      const cycleInterval = 21000;
-      const countdownInterval = 5000;
-      const simulationWindow = 14000;
-      const cycleIndex = Math.floor(epochTimeMs / cycleInterval);
-      const offsetMs = epochTimeMs % cycleInterval;
-
-      if (lastCycleRef.current !== cycleIndex) {
-        lastCycleRef.current = cycleIndex;
-        startFreshLiveBetsFeed();
-        fetchProvablyRound(cycleIndex + 1);
-      }
-
-      const crashPoint = currentRoundRef.current.crashPoint || 2;
-
-      if (offsetMs < countdownInterval) {
-        if (gameStatus !== 'idle') {
-          setGameStatus('idle');
-          setMultiplier(1.0);
-          playSynthesizedTone(440, 'triangle', 0.05, 0.03);
-        }
-        setCountdownProgress(((countdownInterval - offsetMs) / countdownInterval) * 100);
-        if (offsetMs % 1000 < 20) playSynthesizedTone(320, 'sine', 0.03, 0.02);
-        setDeckA((prev) => {
-          if (prev.hasBetNext && !prev.hasBetCurrent) return { ...prev, hasBetCurrent: true, hasBetNext: prev.isAuto };
-          return prev;
-        });
-        setDeckB((prev) => {
-          if (prev.hasBetNext && !prev.hasBetCurrent) return { ...prev, hasBetCurrent: true, hasBetNext: prev.isAuto };
-          return prev;
-        });
-      } else if (offsetMs < countdownInterval + simulationWindow) {
-        setGameStatus('running');
-        const activeSeconds = (offsetMs - countdownInterval) / 1000;
-        const computedMultiplier = parseFloat(Math.pow(Math.E, 0.078 * activeSeconds).toFixed(2));
-        if (computedMultiplier >= crashPoint) {
-          setGameStatus('crashed');
-          setMultiplier(crashPoint);
-          markLiveBetsCrashed();
-          persistCrashToHistory(crashPoint, cycleIndex);
-          setDeckA((p) => ({ ...p, hasBetCurrent: false }));
-          setDeckB((p) => ({ ...p, hasBetCurrent: false }));
-        } else {
-          setMultiplier(computedMultiplier);
-          updateLiveBetStatuses(computedMultiplier);
-          if (offsetMs % 300 < 20) playSynthesizedTone(200 + computedMultiplier * 15, 'sine', 0.015, 0.012);
-          setDeckA((p) => {
-            if (p.hasBetCurrent && p.isAutoCash && computedMultiplier >= parseFloat(p.cashVal)) {
-              triggerPayoutSequence('A', computedMultiplier, p);
-              return { ...p, hasBetCurrent: false };
-            }
-            return p;
-          });
-          setDeckB((p) => {
-            if (p.hasBetCurrent && p.isAutoCash && computedMultiplier >= parseFloat(p.cashVal)) {
-              triggerPayoutSequence('B', computedMultiplier, p);
-              return { ...p, hasBetCurrent: false };
-            }
-            return p;
-          });
-        }
-      } else {
-        setGameStatus('crashed');
-        setMultiplier(crashPoint);
-        markLiveBetsCrashed();
-        persistCrashToHistory(crashPoint, cycleIndex);
-        setDeckA((p) => ({ ...p, hasBetCurrent: false }));
-        setDeckB((p) => ({ ...p, hasBetCurrent: false }));
-      }
-
-      renderRadarCanvas(offsetMs, countdownInterval);
-      animationId.current = requestAnimationFrame(runDistributedClockLoop);
-    }
-
-    animationId.current = requestAnimationFrame(runDistributedClockLoop);
-    return () => cancelAnimationFrame(animationId.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deckA, deckB, gameStatus, balance, audioMuted, isRainActive]);
 
   /* ---------------------------------------------------------------------- */
   /*  TRULY RESPONSIVE CANVAS — reads actual container dimensions            */
@@ -660,10 +625,13 @@ export default function UltimateJetPesaCockpit() {
   /* ---------------------------------------------------------------------- */
   /*  Wallet & Profile Logic                                                 */
   /* ---------------------------------------------------------------------- */
-  const commitWalletBalance = async (balTarget) => {
-    if (!user) return;
-    await updateDoc(doc(db, 'users', user.uid), { walletBalance: parseFloat(balTarget.toFixed(2)) });
-  };
+
+
+
+
+
+
+
 
   const handleProfileUpdate = async () => {
     if (!user) return;
@@ -672,7 +640,11 @@ export default function UltimateJetPesaCockpit() {
       triggerToast('Enter a valid M-Pesa phone number.', 'error');
       return;
     }
-    await updateDoc(doc(db, 'users', user.uid), { displayName: editName.trim(), mpesaPhone: cleanPhone });
+    const { res, json } = await authedFetch('/api/profile', {
+      method: 'POST',
+      body: JSON.stringify({ displayName: editName.trim(), phone: cleanPhone }),
+    });
+    if (!res.ok || !json.success) { triggerToast(json.message || 'Could not update profile.', 'error'); return; }
     setProfileName(editName.trim());
     setPhoneProfile(cleanPhone);
     setInputPhone(cleanPhone);
@@ -682,17 +654,17 @@ export default function UltimateJetPesaCockpit() {
   };
 
   const handleWithdrawExecution = async () => {
-    const amt = parseInt(withdrawAmount);
+    const amt = parseInt(withdrawAmount, 10);
     if (isNaN(amt) || amt < 50) { triggerToast('Minimum withdrawal is KES 50.', 'error'); return; }
     if (amt > balance) { triggerToast('Withdrawal exceeds wallet balance.', 'error'); return; }
     setLoadingWithdraw(true);
     try {
-      const nextBal = balance - amt;
-      setBalance(nextBal);
-      await commitWalletBalance(nextBal);
+      const { res, json } = await authedFetch('/api/withdraw', { method: 'POST', body: JSON.stringify({ amount: amt }) });
+      if (!res.ok || !json.success) throw new Error(json.message || 'Withdrawal failed.');
+      setBalance(json.balance);
       setWithdrawAmount('');
       setIsWithdrawModalOpen(false);
-      triggerToast(`Withdrawal request submitted: KES ${amt}`, 'success');
+      triggerToast(json.message || `Withdrawal submitted: KES ${amt}`, 'success');
     } catch (e) {
       triggerToast(`Withdrawal failed: ${e.message}`, 'error');
     } finally {
@@ -700,60 +672,28 @@ export default function UltimateJetPesaCockpit() {
     }
   };
 
-  const triggerPayoutSequence = (deckName, multVal, activeState) => {
-    const rawWin = activeState.wager * multVal;
-    const resolvedBalance = balance + rawWin;
-    setBalance(resolvedBalance);
-    commitWalletBalance(resolvedBalance);
-    setMyBetsHistory((p) => [{ roundId: Date.now().toString().slice(-5), stake: activeState.wager, multiplier: multVal, yieldAmount: rawWin, status: 'WON' }, ...p]);
-    playSynthesizedTone(523.25, 'sine', 0.15, 0.05);
-    setTimeout(() => playSynthesizedTone(659.25, 'sine', 0.15, 0.05), 100);
-    setTimeout(() => playSynthesizedTone(783.99, 'sine', 0.3, 0.06), 200);
-    confetti({ particleCount: 90, spread: 65, origin: { y: 0.35 } });
-    triggerToast(`Deck ${deckName} Auto Cashout @ ${multVal}x! +KES ${rawWin.toFixed(2)}`, 'success');
-  };
-
   const placeWagerIntent = (targetDeck) => {
-    if (balance <= 0) { triggerToast('Wallet reads KES 0.00. Please deposit first.', 'error'); return; }
     const isA = targetDeck === 'A';
-    const currentWagerAmount = Math.max(MIN_WAGER, Number(isA ? deckA.wager : deckB.wager) || MIN_WAGER);
-    betNonceRef.current++;
-    if (currentWagerAmount < MIN_WAGER) { triggerToast('Minimum wager is KES 10.', 'error'); return; }
-    if (balance < currentWagerAmount) { triggerToast('Selected stake exceeds your available balance.', 'error'); return; }
-    if (gameStatus === 'running') {
-      if (isA) setDeckA((p) => ({ ...p, hasBetNext: !p.hasBetNext }));
-      else setDeckB((p) => ({ ...p, hasBetNext: !p.hasBetNext }));
-      triggerToast(`Deck ${targetDeck} round queue updated.`, 'info');
+    const d = isA ? deckA : deckB;
+    const setter = isA ? setDeckA : setDeckB;
+    const stake = Math.max(MIN_WAGER, Number(d.wager) || MIN_WAGER);
+    if (balance <= 0) { triggerToast('Wallet reads KES 0.00. Please deposit first.', 'error'); return; }
+    if (balance < stake) { triggerToast('Selected stake exceeds your available balance.', 'error'); return; }
+
+    const r = roundRef.current;
+    const now = Date.now() + clockOffsetRef.current;
+    if (r.nonce && r.crashPoint == null && now < r.takeoffAt - 250) {
+      placeServerBet(targetDeck);
     } else {
-      if (isA) setDeckA((p) => ({ ...p, hasBetCurrent: true }));
-      else setDeckB((p) => ({ ...p, hasBetCurrent: true }));
-      setBalance((b) => b - currentWagerAmount);
+      setter((p) => ({ ...p, hasBetNext: !p.hasBetNext }));
+      triggerToast(`Deck ${targetDeck} round queue updated.`, 'info');
     }
   };
 
   const handleManualPayoutExecution = (targetDeck) => {
-    const isA = targetDeck === 'A';
-    const targetState = isA ? deckA : deckB;
+    const targetState = targetDeck === 'A' ? deckA : deckB;
     if (!targetState.hasBetCurrent) return;
-    const preciseWin = targetState.wager * multiplier;
-    const updatedWallet = balance + preciseWin;
-    setBalance(updatedWallet);
-    commitWalletBalance(updatedWallet);
-    setMyBetsHistory((p) => [{ roundId: Date.now().toString().slice(-5), stake: targetState.wager, multiplier, yieldAmount: preciseWin, status: 'WON' }, ...p]);
-    if (isA) setDeckA((p) => ({ ...p, hasBetCurrent: false }));
-    else setDeckB((p) => ({ ...p, hasBetCurrent: false }));
-    playSynthesizedTone(587.33, 'sine', 0.12, 0.05);
-    setTimeout(() => playSynthesizedTone(880.0, 'sine', 0.25, 0.05), 110);
-    confetti({ particleCount: 60, spread: 50, origin: { y: 0.4 } });
-    triggerToast(`Manual Cashout Approved! + KES ${preciseWin.toFixed(2)}`, 'success');
-  };
-
-  const broadcastChatMessage = () => {
-    if (!chatInput.trim()) return;
-    if (balance <= 1000) { triggerToast('Only users with wallet above KES 1,000 can send messages.', 'error'); return; }
-    setChatLogs((p) => [...p, { user: 'You', seed: 'you', msg: chatInput, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
-    setChatInput('');
-    playSynthesizedTone(800, 'sine', 0.03, 0.01);
+    serverCashout(targetDeck, false);
   };
 
   const handlePaymentInitiation = async () => {
@@ -761,15 +701,13 @@ export default function UltimateJetPesaCockpit() {
     const cleanPhone = inputPhone.trim().replace(/\s+/g, '');
     if (isNaN(amt) || amt < 49) { triggerToast('Minimum deposit is KES 49.', 'error'); return; }
     if ((!cleanPhone.startsWith('07') && !cleanPhone.startsWith('01')) || cleanPhone.length !== 10) { triggerToast('Enter a valid M-Pesa phone number.', 'error'); return; }
-    if (!user?.uid) { triggerToast('Login session expired. Please sign in again.', 'error'); return; }
+    if (!user?.id) { triggerToast('Login session expired. Please sign in again.', 'error'); return; }
     setLoadingDeposit(true);
     try {
-      const res = await fetch('/api/payhero', {
+      const { res, json: data } = await authedFetch('/api/deposit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: amt, phone: cleanPhone, username: user.uid }),
+        body: JSON.stringify({ amount: amt, phone: cleanPhone }),
       });
-      const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || 'Payment initiation failed.');
       if (rememberPhone) localStorage.setItem('jetpesa_saved_phone', cleanPhone);
       triggerToast(data.message || 'STK push sent. Complete payment on your phone.', 'info');
@@ -778,20 +716,20 @@ export default function UltimateJetPesaCockpit() {
       const poll = setInterval(async () => {
         attempts += 1;
         try {
-          const statusRes = await fetch(`/api/payhero-status?reference=${data.reference}`);
-          const statusData = await statusRes.json();
-          if (statusData.status === 'completed') {
+          const { json: st } = await authedFetch(`/api/deposit-status?reference=${encodeURIComponent(data.reference)}`);
+          if (st.status === 'completed') {
             clearInterval(poll);
-            const userDoc = await getDoc(doc(db, 'users', user.uid));
-            setBalance(userDoc.exists() ? Number(userDoc.data().walletBalance || 0) : balance);
+            setBalance(Number(st.balance || 0));
             setIsDepositModalOpen(false);
             setLoadingDeposit(false);
             triggerToast(`Deposit confirmed. KES ${amt} added.`, 'success');
+            return;
           }
-          if (statusData.status === 'failed') {
+          if (st.status === 'failed') {
             clearInterval(poll);
             setLoadingDeposit(false);
-            triggerToast(statusData.failureReason || 'Payment failed or was cancelled.', 'error');
+            triggerToast(st.failureReason || 'Payment failed or was cancelled.', 'error');
+            return;
           }
           if (attempts >= maxAttempts) {
             clearInterval(poll);
@@ -832,10 +770,10 @@ export default function UltimateJetPesaCockpit() {
         liveBetsFeed.map((b) => (
           <div key={b.id} className="jp-live-row">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-              <UserAvatar seed={b.seed} size={26} />
+              <UserAvatar seed={b.username} size={26} />
               <div style={{ minWidth: 0 }}>
                 <span className="jp-live-user">{b.username}</span>
-                <span className="jp-live-sub">Round #{currentRoundRef.current.nonce}</span>
+                <span className="jp-live-sub">Round #{roundInfo.nonce}</span>
               </div>
             </div>
             <span className="jp-live-stake">{b.bet} KES</span>
@@ -919,7 +857,7 @@ export default function UltimateJetPesaCockpit() {
           <span className="jp-brand-text">JET<span className="jp-brand-accent">PESA</span></span>
           <button className="jp-fair-btn" onClick={openProvablyModal}>
             <Icon name="shield-check" size={13} />
-            <span className="jp-fair-label">FAIR #{currentRoundRef.current.nonce}</span>
+            <span className="jp-fair-label">FAIR #{roundInfo.nonce}</span>
           </button>
         </div>
         <div className="jp-header-right">
@@ -969,12 +907,12 @@ export default function UltimateJetPesaCockpit() {
           {activeTab === 'all' ? renderLiveBets() : (
             <div className="jp-panel-scroll">
               {myBetsHistory.length === 0 ? (
-                <div className="jp-empty-state"><Icon name="bar-chart-3" size={32} /><strong>No local round wagers recorded.</strong></div>
+                <div className="jp-empty-state"><Icon name="bar-chart-3" size={32} /><strong>No settled bets yet.</strong></div>
               ) : (
                 myBetsHistory.map((m, i) => (
                   <div key={i} className="jp-bet-history-row">
                     <div><span className="jp-bet-history-round">ROUND #{m.roundId}</span><span className="jp-bet-history-stake">{m.stake} KES</span></div>
-                    <div style={{ textAlign: 'right' }}><span className="jp-bet-history-mult">{m.multiplier.toFixed(2)}x</span><span className="jp-bet-history-yield">+{m.yieldAmount.toFixed(1)}</span></div>
+                    <div style={{ textAlign: 'right' }}><span className="jp-bet-history-mult">{m.multiplier.toFixed(2)}x</span><span className="jp-bet-history-yield">{m.status === 'WON' ? `+${m.yieldAmount.toFixed(1)}` : `-${m.stake}`}</span></div>
                   </div>
                 ))
               )}
@@ -1014,6 +952,9 @@ export default function UltimateJetPesaCockpit() {
         <div className="jp-panel jp-right-panel" data-active={mobileActivePanel === 'chat'}>
           <div className="jp-chat-header"><div className="jp-chat-dot" /><span>Lobby Chat</span></div>
           <div className="jp-chat-scroll">
+            {chatLogs.length === 0 && (
+              <div className="jp-empty-state"><Icon name="message-square" size={32} /><strong>Chat is offline</strong><span>Community chat is not available yet.</span></div>
+            )}
             {chatLogs.map((c, i) => {
               const isMe = c.user === 'You';
               return (
@@ -1032,8 +973,8 @@ export default function UltimateJetPesaCockpit() {
             <div ref={chatEndRef} />
           </div>
           <div className="jp-chat-input-row">
-            <input type="text" placeholder={balance > 1000 ? 'Type a message...' : 'Requires KES 1001+'} disabled={balance <= 1000} value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') broadcastChatMessage(); }} className="jp-chat-input" />
-            <button onClick={broadcastChatMessage} className="jp-chat-send" aria-label="Send message"><Icon name="send" size={15} /></button>
+            <input type="text" placeholder="Chat is not available yet" disabled value="" readOnly className="jp-chat-input" />
+            <button disabled className="jp-chat-send" aria-label="Send message"><Icon name="send" size={15} /></button>
           </div>
         </div>
       </div>
@@ -1096,16 +1037,16 @@ export default function UltimateJetPesaCockpit() {
             ) : (
               <>
                 <div className="jp-fair-summary">
-                  <div className="jp-fair-mini"><span>Round</span><strong>#{provablyData?.nonce || currentRoundRef.current.nonce}</strong></div>
-                  <div className="jp-fair-mini"><span>Crash</span><strong>{Number(provablyData?.crashPoint || currentRoundRef.current.crashPoint).toFixed(2)}x</strong></div>
+                  <div className="jp-fair-mini"><span>Round</span><strong>#{provablyData?.nonce ?? '-'}</strong></div>
+                  <div className="jp-fair-mini"><span>Crash</span><strong>{provablyData?.revealed ? `${Number(provablyData.crashPoint).toFixed(2)}x` : 'Hidden until crash'}</strong></div>
                 </div>
-                <HashLine label="Server Seed Hash" value={provablyData?.serverSeedHash || currentRoundRef.current.serverSeedHash} />
-                <HashLine label="Round Hash" value={provablyData?.roundHash || currentRoundRef.current.roundHash} />
-                <HashLine label="Client Seed" value={provablyData?.clientSeed || currentRoundRef.current.clientSeed} />
-                <HashLine label="Verify Input" value={provablyData?.verifyInput || currentRoundRef.current.verifyInput} />
-                <HashLine label="Revealed Server Seed" value={provablyData?.serverSeed || currentRoundRef.current.serverSeed || 'Available after round close'} />
-                <HashLine label="Algorithm" value={provablyData?.algorithm || currentRoundRef.current.algorithm || 'HMAC_SHA256'} />
-                <button onClick={() => fetchProvablyRound(currentRoundRef.current.nonce, true)} className="jp-modal-btn jp-btn-purple">REFRESH HASH DETAILS</button>
+                <HashLine label="Server Seed Hash (published before the round)" value={provablyData?.serverSeedHash || ''} />
+                <HashLine label="Round Hash" value={provablyData?.roundHash || 'Revealed after crash'} />
+                <HashLine label="Client Seed" value={provablyData?.clientSeed || 'Revealed after crash'} />
+                <HashLine label="Verify Input" value={provablyData?.verifyInput || 'Revealed after crash'} />
+                <HashLine label="Revealed Server Seed" value={provablyData?.serverSeed || 'Revealed after crash'} />
+                <HashLine label="Algorithm" value={provablyData?.algorithm || 'HMAC_SHA256'} />
+                <button onClick={openProvablyModal} className="jp-modal-btn jp-btn-purple">REFRESH HASH DETAILS</button>
               </>
             )}
           </div>

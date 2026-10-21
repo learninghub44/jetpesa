@@ -2,12 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { auth, db } from '../../firebaseConfig';
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-} from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { supabase } from '../../lib/supabaseBrowser';
 
 /* -------------------------------------------------------------------------- */
 /*  Icon System — Professional, scalable SVG replacements                     */
@@ -73,14 +68,6 @@ function AuthForm() {
 
   const cleanPhone = (value) => value.trim().replace(/\s+/g, '');
 
-  const resolveEmailFromPhone = async (phoneNum) => {
-    const snap = await getDoc(doc(db, 'phoneLookup', cleanPhone(phoneNum)));
-    if (!snap.exists()) {
-      throw new Error('No account found with that phone number.');
-    }
-    return snap.data().email;
-  };
-
   const validatePhone = (value) => {
     const cleaned = cleanPhone(value);
     return cleaned.length === 10 && (cleaned.startsWith('07') || cleaned.startsWith('01'));
@@ -92,43 +79,28 @@ function AuthForm() {
     setLoading(true);
 
     try {
-      if (activeTab === 'login') {
-        let finalEmail = loginIdentifier.trim();
-        if (!finalEmail.includes('@')) {
-          finalEmail = await resolveEmailFromPhone(finalEmail);
-        }
-        await signInWithEmailAndPassword(auth, finalEmail, password);
-        router.replace('/dashboard');
-        return;
-      }
-
-      if (!validatePhone(phone)) {
+      if (activeTab === 'signup' && !validatePhone(phone)) {
         throw new Error('Enter a valid phone number, e.g. 0712345678 or 0112345678.');
       }
 
-      const cleanEmail = email.trim().toLowerCase();
-      const cleanMpesaPhone = cleanPhone(phone);
+      const isLogin = activeTab === 'login';
+      const res = await fetch(isLogin ? '/api/auth/login' : '/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          isLogin
+            ? { identifier: loginIdentifier.trim(), password }
+            : { email: email.trim().toLowerCase(), password, phone: cleanPhone(phone) }
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Authentication failed.');
 
-      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-      const uid = userCredential.user.uid;
-
-      await Promise.all([
-        setDoc(doc(db, 'users', uid), {
-          uid,
-          email: cleanEmail,
-          mpesaPhone: cleanMpesaPhone,
-          walletBalance: 0.0,
-          createdAt: new Date().toISOString(),
-        }),
-        setDoc(doc(db, 'phoneLookup', cleanMpesaPhone), {
-          uid,
-          email: cleanEmail,
-        }),
-      ]);
-
+      const { error } = await supabase.auth.setSession(data.session);
+      if (error) throw new Error(error.message);
       router.replace('/dashboard');
     } catch (err) {
-      setErrorMsg(err.message.replace('Firebase:', '').trim());
+      setErrorMsg(err.message);
       setLoading(false);
     }
   };
