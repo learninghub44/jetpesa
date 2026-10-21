@@ -24,6 +24,7 @@ export async function POST(request) {
       auth: { persistSession: false },
     });
     const { data, error } = await anon.auth.signInWithPassword({ email, password });
+    if (error && /confirm/i.test(error.message)) throw httpError(403, 'Please verify your email first. Check your inbox for the link.');
     if (error || !data?.session) throw httpError(401, 'Invalid credentials.');
     return ok({ session: { access_token: data.session.access_token, refresh_token: data.session.refresh_token } });
   } catch (e) {

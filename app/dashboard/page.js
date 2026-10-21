@@ -1002,6 +1002,7 @@ export default function UltimateJetPesaCockpit() {
                 <option value="payhero">PayHero (M-Pesa)</option>
               </select>
             </div>
+            <p style={{ margin: '0 0 12px', color: '#94a3b8', fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>18+ only. Betting involves risk. Never deposit money you cannot afford to lose.</p>
             <button onClick={handlePaymentInitiation} disabled={loadingDeposit} className="jp-modal-btn jp-btn-green">{loadingDeposit ? 'SYNCHRONIZING...' : 'AUTHORIZE DEPOSIT'}</button>
           </div>
         </div>

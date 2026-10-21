@@ -57,6 +57,8 @@ function AuthForm() {
   const [phone, setPhone] = useState('');
 
   const [errorMsg, setErrorMsg] = useState('');
+  const [infoMsg, setInfoMsg] = useState('');
+  const [over18, setOver18] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -76,9 +78,13 @@ function AuthForm() {
   const handleAuthenticationExecution = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setInfoMsg('');
     setLoading(true);
 
     try {
+      if (activeTab === 'signup' && !over18) {
+        throw new Error('You must confirm you are 18 or older.');
+      }
       if (activeTab === 'signup' && !validatePhone(phone)) {
         throw new Error('Enter a valid phone number, e.g. 0712345678 or 0112345678.');
       }
@@ -90,11 +96,20 @@ function AuthForm() {
         body: JSON.stringify(
           isLogin
             ? { identifier: loginIdentifier.trim(), password }
-            : { email: email.trim().toLowerCase(), password, phone: cleanPhone(phone) }
+            : { email: email.trim().toLowerCase(), password, phone: cleanPhone(phone), over18 }
         ),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || 'Authentication failed.');
+
+      if (data.verifyEmail) {
+        setInfoMsg('Account created. Check your email and click the verification link, then sign in.');
+        setActiveTab('login');
+        setLoginIdentifier(email.trim().toLowerCase());
+        setPassword('');
+        setLoading(false);
+        return;
+      }
 
       const { error } = await supabase.auth.setSession(data.session);
       if (error) throw new Error(error.message);
@@ -141,6 +156,12 @@ function AuthForm() {
           Sign Up
         </button>
       </div>
+
+      {infoMsg && (
+        <div role="status" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', color: '#86efac', padding: '12px 16px', borderRadius: 12, fontSize: 13, fontWeight: 700, marginBottom: 20 }}>
+          {infoMsg}
+        </div>
+      )}
 
       {errorMsg && (
         <div className="jp-auth-error" role="alert">
@@ -219,6 +240,13 @@ function AuthForm() {
           </div>
         </div>
 
+        {activeTab === 'signup' && (
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', color: '#94a3b8', fontSize: 12, fontWeight: 600, lineHeight: 1.5, cursor: 'pointer' }}>
+            <input type="checkbox" checked={over18} disabled={loading} onChange={(e) => setOver18(e.target.checked)} style={{ marginTop: 3 }} />
+            <span>I am 18 or older and understand that betting involves the risk of losing money.</span>
+          </label>
+        )}
+
         <button
           type="submit"
           disabled={loading}
@@ -239,7 +267,7 @@ function AuthForm() {
 
       <p className="jp-auth-footer">
         <Icon name="shield-check" size={14} />
-        Secure wallet access for JetPesa Aviator.
+        Secure wallet access. 18+ only. Play responsibly.
       </p>
     </div>
   );

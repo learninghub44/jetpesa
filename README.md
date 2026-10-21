@@ -4,7 +4,7 @@ Aviator-style crash game built with Next.js, **Supabase** (auth + database) and 
 
 ## How it works
 
-- **Auth:** Supabase Auth. Sign in with email or phone number (phone is resolved server-side).
+- **Auth:** Supabase Auth. Sign in with email or phone number (phone is resolved server-side). Signup requires an 18+ confirmation and, by default, email verification (needs "Confirm email" on and working SMTP in Supabase; set `REQUIRE_EMAIL_VERIFICATION=false` to disable).
 - **Wallet:** balances live in `profiles.wallet_balance`. Browsers can only *read* their own row. Every balance change goes through SQL functions that only the server (service role) can call, and each one writes to `wallet_ledger`.
 - **Game:** rounds are created and settled on the server. The crash point stays in the database until the round has crashed; bets and cash-outs are validated against the server clock and paid by the server.
 - **Provably fair:** each round publishes `sha256(roundSeed)` up front and reveals the seed after the crash (`/api/game/provably?nonce=N`). Crash point = f(HMAC_SHA256(roundSeed, `clientSeed:nonce`)).
