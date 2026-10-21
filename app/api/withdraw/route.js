@@ -3,6 +3,8 @@ import { ok, fail } from '../../../lib/http';
 import { requireUser, httpError, normalizePhone } from '../../../lib/serverAuth';
 import { paystack, toSubunit } from '../../../lib/paystack';
 
+import { requireLicence } from '../../../lib/licence';
+
 export const dynamic = 'force-dynamic';
 
 const MIN = 50;
@@ -12,6 +14,7 @@ export async function POST(request) {
   let reference;
   const admin = getAdmin();
   try {
+    requireLicence();
     const user = await requireUser(request);
     const amt = Math.floor(Number((await request.json()).amount));
     if (!amt || amt < MIN) throw httpError(400, `Minimum withdrawal is KES ${MIN}.`);

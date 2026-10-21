@@ -723,7 +723,7 @@ export default function JetPesaLandingPage() {
           <h2 className="jp-final-title">Join JetPesa and enter the next round.</h2>
           <p className="jp-final-text">
             Aviator-style crash game with M-Pesa deposits and verifiable rounds.
-            Betting involves risk. Only play with money you can afford to lose. 18+.
+            Betting involves risk. Only play with money you can afford to lose. 18+.{process.env.NEXT_PUBLIC_BCLB_LICENCE_NO ? ` BCLB licence no. ${process.env.NEXT_PUBLIC_BCLB_LICENCE_NO}.` : ''}
           </p>
         </div>
 

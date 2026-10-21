@@ -3,10 +3,13 @@ import { ok, fail } from '../../../../lib/http';
 import { requireUser, httpError } from '../../../../lib/serverAuth';
 import { ensureCurrentRound, phaseOf, MIN_STAKE, MAX_STAKE } from '../../../../lib/game';
 
+import { requireLicence } from '../../../../lib/licence';
+
 export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
+    requireLicence();
     const user = await requireUser(request);
     const { deck, stake, autoCashout } = await request.json();
 

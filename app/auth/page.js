@@ -267,7 +267,7 @@ function AuthForm() {
 
       <p className="jp-auth-footer">
         <Icon name="shield-check" size={14} />
-        Secure wallet access. 18+ only. Play responsibly.
+        Secure wallet access. 18+ only. Play responsibly.{process.env.NEXT_PUBLIC_BCLB_LICENCE_NO ? ` BCLB licence no. ${process.env.NEXT_PUBLIC_BCLB_LICENCE_NO}.` : ''}
       </p>
     </div>
   );

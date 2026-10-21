@@ -4,6 +4,8 @@ import { requireUser, httpError, normalizePhone } from '../../../lib/serverAuth'
 import { paystack, toSubunit } from '../../../lib/paystack';
 import { payheroStkPush, payheroConfigured } from '../../../lib/payhero';
 
+import { requireLicence } from '../../../lib/licence';
+
 export const dynamic = 'force-dynamic';
 
 function baseUrl(request) {
@@ -14,6 +16,7 @@ function baseUrl(request) {
 
 export async function POST(request) {
   try {
+    requireLicence();
     const user = await requireUser(request);
     const { amount, phone, provider } = await request.json();
 

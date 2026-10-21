@@ -21,6 +21,10 @@ Aviator-style crash game built with Next.js, **Supabase** (auth + database) and 
 
 ## Before going live
 
+Deposits, bets and withdrawals are disabled until `NEXT_PUBLIC_BCLB_LICENCE_NO` is set. Only set it if you actually hold the licence.
+
+Run `PAYSTACK_SECRET_KEY=sk_... node scripts/paystack-check.mjs 07XXXXXXXX` to verify M-Pesa payout setup before launch (add `--transfer` to send a real KES 50 test payout).
+
 - Real-money gaming in Kenya requires a licence from the Betting Control and Licensing Board (BCLB). Paystack also restricts gambling merchants. Confirm both before taking deposits.
 - Never commit `.env.local` or keys.
 - Add 18+ and responsible-gambling messaging appropriate to your licence.
